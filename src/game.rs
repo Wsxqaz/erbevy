@@ -1,11 +1,18 @@
 use crate::{Game, GameState};
 use bevy::prelude::*;
+use bevy::sprite::{ Mesh2dHandle, MaterialMesh2dBundle };
 
 #[derive(Component)]
 struct OnGameScreen;
 
 #[derive(Resource)]
-struct GameTimer(Timer);
+struct GameGlobalTimer(Timer);
+
+#[derive(Resource)]
+struct GameMoveTimer(Timer);
+
+#[derive(Component)]
+struct Player;
 
 pub struct GamePlugin;
 
@@ -17,7 +24,11 @@ impl Plugin for GamePlugin {
     }
 }
 
-fn game_setup(mut commands: Commands, game: Res<Game>) {
+fn game_setup(mut commands: Commands, game: Res<Game>, mut materials: ResMut<Assets<ColorMaterial>>, mut meshes: ResMut<Assets<Mesh>>) {
+    let circle = Mesh2dHandle(meshes.add(Circle {
+        radius: 25.0,
+        ..Default::default()
+    }));
     commands
         .spawn((
             NodeBundle {
@@ -33,6 +44,15 @@ fn game_setup(mut commands: Commands, game: Res<Game>) {
             OnGameScreen,
         ))
         .with_children(|parent| {
+            parent
+                .spawn((
+                    MaterialMesh2dBundle {
+                        mesh: circle,
+                        material: materials.add(Color::WHITE),
+                        ..default()
+                    }, OnGameScreen, Player
+                ));
+
             parent
                 .spawn(NodeBundle {
                     style: Style {
@@ -76,18 +96,34 @@ fn game_setup(mut commands: Commands, game: Res<Game>) {
                 });
         });
 
-    commands.insert_resource(GameTimer(Timer::from_seconds(5.0, TimerMode::Once)));
+    commands.insert_resource(GameGlobalTimer(Timer::from_seconds(30.0, TimerMode::Once)));
+    commands.insert_resource(GameMoveTimer(Timer::from_seconds(0.5, TimerMode::Repeating)));
 }
 
 fn game(
     time: Res<Time>,
-    mut timer: ResMut<GameTimer>,
+    mut global_timer: ResMut<GameGlobalTimer>,
+    mut move_timer: ResMut<GameMoveTimer>,
     mut game_state: ResMut<NextState<GameState>>,
+    mut query: Query<&mut Transform, (With<OnGameScreen>, With<Player>)>,
 ) {
-    timer.0.tick(time.delta());
-    if timer.0.finished() {
+    if global_timer.0.tick(time.delta()).finished() {
         game_state.set(GameState::Menu);
+    }
+
+    if move_timer.0.tick(time.delta()).just_finished() {
+        println!("Move player");
+        for mut transform in query.iter_mut() {
+            println!("transform item: {:?}", transform);
+            transform.translation.x -= 10.0;
+            transform.translation.y -= 10.0;
+            transform.scale += 0.1;
+        }
     }
 }
 
-fn game_cleanup() {}
+fn game_cleanup(mut commands: Commands, query: Query<Entity, With<OnGameScreen>>) {
+    for entity in query.iter() {
+        commands.entity(entity).despawn_recursive();
+    }
+}
