@@ -46,6 +46,8 @@ fn menu_setup(mut commands: Commands) {
                     style: Style {
                         flex_direction: FlexDirection::Column,
                         align_items: AlignItems::Center,
+                        width: Val::Percent(100.0),
+                        height: Val::Percent(100.0),
                         ..default()
                     },
                     background_color: Color::BLACK.into(),
@@ -77,7 +79,7 @@ fn menu_setup(mut commands: Commands) {
                             },
                         )
                         .with_style(Style {
-                            margin: UiRect::all(Val::Px(50.0)),
+                            margin: UiRect::all(Val::Px(10.0)),
                             ..default()
                         }),
                         OnMenuScreen,
@@ -93,7 +95,7 @@ fn menu_setup(mut commands: Commands) {
                             },
                         )
                         .with_style(Style {
-                            margin: UiRect::all(Val::Px(50.0)),
+                            margin: UiRect::all(Val::Px(10.0)),
                             ..default()
                         }),
                         OnMenuScreen,
@@ -101,8 +103,14 @@ fn menu_setup(mut commands: Commands) {
                 });
         });
 
-    commands.insert_resource(MenuInputTimer(Timer::from_seconds(1.0 / 60.0, TimerMode::Repeating)));
-    commands.insert_resource(MenuUpdateTimer(Timer::from_seconds(1.0 / 60.0, TimerMode::Repeating)));
+    commands.insert_resource(MenuInputTimer(Timer::from_seconds(
+        1.0 / 60.0,
+        TimerMode::Repeating,
+    )));
+    commands.insert_resource(MenuUpdateTimer(Timer::from_seconds(
+        1.0 / 60.0,
+        TimerMode::Repeating,
+    )));
 }
 
 fn menu_input(

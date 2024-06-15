@@ -36,11 +36,19 @@ struct Game {
     rings: [Ring; NUM_RINGS],
     menu: Menu,
     player: Player,
+    walls: Walls,
 }
 
 #[derive(Default, Debug)]
 struct Player {
-    cur_section: u32,
+    x: f32,
+    y: f32,
+    pos: u32,
+}
+
+#[derive(Default, Debug)]
+struct Walls {
+    last: u32,
 }
 
 #[derive(Component, Default)]
@@ -59,15 +67,22 @@ fn setup_cameras(mut commands: Commands) {
 
 fn main() {
     App::new()
-        .add_plugins((DefaultPlugins.set(bevy::log::LogPlugin { ..default() }), MenuPlugin, GamePlugin))
+        .add_plugins((
+            DefaultPlugins.set(bevy::log::LogPlugin { ..default() }),
+            MenuPlugin,
+            GamePlugin,
+        ))
         .init_resource::<Game>()
         .init_state::<GameState>()
         .add_systems(Startup, setup_cameras)
-        .add_systems(OnEnter(GameState::Exit), |mut commands: Commands, query: Query<Entity>| {
-            for entity in query.iter() {
-                println!("Exiting: {:?}", entity);
-                commands.entity(entity).despawn_recursive();
-            }
-        })
+        .add_systems(
+            OnEnter(GameState::Exit),
+            |mut commands: Commands, query: Query<Entity>| {
+                for entity in query.iter() {
+                    println!("Exiting: {:?}", entity);
+                    commands.entity(entity).despawn_recursive();
+                }
+            },
+        )
         .run();
 }
