@@ -1,3 +1,5 @@
+#![allow(unused)]
+
 use bevy::prelude::*;
 
 mod game;
@@ -43,6 +45,7 @@ struct Game {
 struct Player {
     x: f32,
     y: f32,
+    theta: f32,
     pos: u32,
 }
 
