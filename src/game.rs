@@ -3,14 +3,17 @@ use bevy::prelude::*;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
 
 const WALL_SIDES: u32 = 6u32;
-const PLAYER_RING_RADIUS: f32 = 300.0;
 const PLAYER_MOVE_SPEED: f32 = 5.0;
 const INITIAL_RING_RADIUS: f32 = 100.0;
 const WALL_SPIN_SPEED: f32 = 1.0;
 const WALL_SHRINK_SPEED: f32 = 0.01;
+const WALL_RING_RADIUS: f32 = 1000.0;
+const WALL_HEIGHT: f32 = 10.0;
 const CENTER_HEX_RADIUS: f32 = 100.0;
-const CENTER_HEX_WIDTH: f32 = 2000.0;
 const CENTER_HEX_HEIGHT: f32 = 10.0;
+const PLAYER_RING_RADIUS: f32 = CENTER_HEX_RADIUS + 60.0;
+const BORDER_WIDTH: f32 = 3000.0;
+const BORDER_HEIGHT: f32 = 10.0;
 const BACKGROUD_MOVE_SPEED: f32 = 0.5;
 
 // /-\
@@ -39,7 +42,8 @@ struct PlayerTracker;
 
 #[derive(Component)]
 struct BackgroundSlice {
-    theta: f32,
+    offset_theta: f32,
+    index: u32,
 }
 
 #[derive(Resource)]
@@ -57,20 +61,25 @@ struct WallMoveTimer(Timer);
 #[derive(Resource)]
 struct CenterHexMoveTimer(Timer);
 
+#[derive(Resource)]
+struct GameRotateTimer(Timer);
+
 #[derive(Component)]
 struct Wall {
-    theta: f32,
+    index: u32,
     ring_radius: f32,
 }
 
 #[derive(Component)]
 struct CenterHex {
-    theta: f32,
+    offset_theta: f32,
+    index: u32,
 }
 
 #[derive(Component)]
 struct Borders {
-    theta: f32,
+    offset_theta: f32,
+    index: u32,
 }
 
 pub struct GamePlugin;
@@ -98,49 +107,13 @@ impl Plugin for GamePlugin {
                 game_background_mover,
                 game_border_mover,
                 game_center_hex_mover,
+                game_theta_mover,
             )
                 .chain()
                 .run_if(in_state(GameState::Playing)),
         )
         .add_systems(OnExit(GameState::Playing), game_cleanup);
     }
-}
-
-fn wallside_to_translation(side: u32) -> Vec3 {
-    let edge = 500.0;
-    let mut pos_x = 0.0;
-    let mut pos_y = 0.0;
-    let mut pos_z = 0.0;
-
-    if side == 0 {
-        pos_y = edge;
-    } else if side == 1 {
-        pos_x = edge;
-    } else if side == 2 {
-        pos_y = -1.0 * edge;
-    } else if side == 3 {
-        pos_x = -1.0 * edge;
-    }
-
-    Vec3::new(pos_x, pos_y, pos_z)
-}
-
-fn wallside_to_scale(side: u32) -> Vec3 {
-    let size = 300.0;
-    let mut scale_x = 20.0;
-    let mut scale_y = 20.0;
-
-    if side == 0 {
-        scale_x = size;
-    } else if side == 1 {
-        scale_y = size;
-    } else if side == 2 {
-        scale_x = size;
-    } else if side == 3 {
-        scale_y = size;
-    }
-
-    Vec3::new(scale_x, scale_y, 1.0)
 }
 
 fn game_wallspawner(
@@ -152,20 +125,52 @@ fn game_wallspawner(
     mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
-    if !timer.0.tick(time.delta()).finished() {
+    if !timer.0.tick(time.delta()).just_finished() {
         return;
     }
 
-    game.walls.last = (game.walls.last + 1) % 4;
-
+    println!("spawning wall");
     let wallside = game.walls.last;
-    let translation = wallside_to_translation(wallside);
-    let scale = wallside_to_scale(wallside);
+    game.walls.last += 1;
+    let theta = game.theta;
+    let theta = (theta + wallside as f32 * 60.0) % 360.0;
+    let theta = (theta + 30.0) % 360.0;
+    let x = theta.to_radians().cos() * WALL_RING_RADIUS;
+    let y = theta.to_radians().sin() * WALL_RING_RADIUS;
+    let translation = Vec3::new(x, y, 10.0);
+    let x1 = (1.0 * WALL_RING_RADIUS);
+    let x2 = (60.0_f32.to_radians().cos() * WALL_RING_RADIUS);
+    let y1 = 0.0;
+    let y2 = (60.0_f32.to_radians().sin() * WALL_RING_RADIUS);
+    let scale_x = ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt() + (WALL_RING_RADIUS / 6.25);
+    let scale = Vec3::new(scale_x, WALL_HEIGHT, 1.0);
+    let rotation = Quat::from_rotation_z(theta.to_radians() + 90.0_f32.to_radians());
+
+    commands.spawn((
+        SpriteBundle {
+            transform: Transform {
+                translation: translation,
+                scale: scale,
+                rotation: rotation,
+            },
+            sprite: Sprite {
+                color: Color::WHITE,
+                ..default()
+            },
+            ..default()
+        },
+        OnGameScreen,
+        Wall {
+            index: wallside,
+            ring_radius: WALL_RING_RADIUS,
+        },
+    ));
 }
 
 fn game_wallmover(
     mut commands: Commands,
     mut move_timer: ResMut<WallMoveTimer>,
+    mut game: ResMut<Game>,
     time: Res<Time>,
     mut query: Query<(&mut Transform, &mut Wall, Entity), With<Wall>>,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -176,33 +181,39 @@ fn game_wallmover(
     }
 
     for (mut transform, mut wall, entity) in query.iter_mut() {
-        if transform.translation.x == 0.0 && transform.translation.y == 0.0 {
+        println!("moving wall {}", wall.index);
+        let theta = game.theta;
+        let theta = (theta + wall.index as f32 * 60.0) % 360.0;
+        let theta = (theta + 30.0) % 360.0;
+        transform.rotation = Quat::from_rotation_z(theta.to_radians() + 90.0_f32.to_radians());
+        wall.ring_radius -= 1.0;
+        let x = theta.to_radians().cos() * wall.ring_radius;
+        let y = theta.to_radians().sin() * wall.ring_radius;
+        let x1 = (1.0 * wall.ring_radius);
+        let x2 = (60.0_f32.to_radians().cos() * wall.ring_radius);
+        let y1 = 0.0;
+        let y2 = (60.0_f32.to_radians().sin() * wall.ring_radius);
+        let scale_x = ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt();
+        transform.translation.x = x;
+        transform.translation.y = y;
+        info!("scale_x: {}", scale_x);
+        transform.scale.x = scale_x + (wall.ring_radius / 6.25);
+
+        if wall.ring_radius < CENTER_HEX_RADIUS {
             commands.entity(entity).despawn_recursive();
         }
 
-        wall.theta = (wall.theta + BACKGROUD_MOVE_SPEED) % 360.0;
-        wall.ring_radius -= WALL_SHRINK_SPEED;
-        let x = wall.theta.to_radians().cos() * wall.ring_radius;
-        let y = wall.theta.to_radians().sin() * wall.ring_radius;
-        transform.translation.x = x;
-        transform.translation.y = y;
-        transform.scale.x -= 0.01;
-        transform.scale.y -= 0.01;
-        transform.rotation = Quat::from_rotation_z(wall.theta.to_radians());
     }
 }
 
-fn game_center_hex_mover(
+fn game_theta_mover(
     mut commands: Commands,
-    mut move_timer: ResMut<CenterHexMoveTimer>,
+    mut move_timer: ResMut<GameRotateTimer>,
     time: Res<Time>,
-    mut query: Query<(&mut Transform, &mut CenterHex)>,
+    mut game: ResMut<Game>,
 ) {
     if move_timer.0.tick(time.delta()).finished() {
-        for (mut transform, mut center_hex) in query.iter_mut() {
-            center_hex.theta = (center_hex.theta + BACKGROUD_MOVE_SPEED) % 360.0;
-            transform.rotation = Quat::from_rotation_z(center_hex.theta.to_radians());
-        }
+        game.theta = (game.theta + WALL_SPIN_SPEED) % 360.0;
     }
 }
 
@@ -210,12 +221,12 @@ fn game_background_mover(
     mut commands: Commands,
     mut move_timer: ResMut<BackgroundMoveTimer>,
     time: Res<Time>,
+    game: Res<Game>,
     mut query: Query<(&mut Transform, &mut BackgroundSlice, &Mesh2dHandle)>,
 ) {
     if move_timer.0.tick(time.delta()).finished() {
         for (mut transform, mut slice, mut mesh) in query.iter_mut() {
-            slice.theta = (slice.theta + BACKGROUD_MOVE_SPEED) % 360.0;
-            transform.rotation = Quat::from_rotation_z(slice.theta.to_radians());
+            transform.rotation = Quat::from_rotation_z(game.theta.to_radians());
         }
     }
 }
@@ -224,12 +235,12 @@ fn game_border_mover(
     mut commands: Commands,
     mut move_timer: ResMut<BorderMoveTimer>,
     time: Res<Time>,
+    game: Res<Game>,
     mut query: Query<(&mut Transform, &mut Borders)>,
 ) {
     if move_timer.0.tick(time.delta()).finished() {
         for (mut transform, mut border) in query.iter_mut() {
-            border.theta = (border.theta + BACKGROUD_MOVE_SPEED) % 360.0;
-            transform.rotation = Quat::from_rotation_z(border.theta.to_radians());
+            transform.rotation = Quat::from_rotation_z(game.theta.to_radians() + border.index as f32 * 60.0_f32.to_radians());
         }
     }
 }
@@ -257,12 +268,12 @@ fn spawn_background_slices(
                     .add(Mesh::from(Triangle2d {
                         vertices: [
                             Vec2::new(
-                                (i as f32 * 60.0).to_radians().cos() * CENTER_HEX_WIDTH,
-                                (i as f32 * 60.0).to_radians().sin() * CENTER_HEX_WIDTH,
+                                (i as f32 * 60.0).to_radians().cos() * BORDER_WIDTH,
+                                (i as f32 * 60.0).to_radians().sin() * BORDER_WIDTH,
                             ),
                             Vec2::new(
-                                ((i as f32 + 1.0) * 60.0).to_radians().cos() * CENTER_HEX_WIDTH,
-                                ((i as f32 + 1.0) * 60.0).to_radians().sin() * CENTER_HEX_WIDTH,
+                                ((i as f32 + 1.0) * 60.0).to_radians().cos() * BORDER_WIDTH,
+                                ((i as f32 + 1.0) * 60.0).to_radians().sin() * BORDER_WIDTH,
                             ),
                             Vec2::new(0.0, 0.0),
                         ],
@@ -277,7 +288,7 @@ fn spawn_background_slices(
                 ..default()
             },
             OnGameScreen,
-            BackgroundSlice { theta: 0.0 },
+            BackgroundSlice { offset_theta: 0.0, index: i },
         ));
     }
 }
@@ -290,7 +301,7 @@ fn spawn_background_borders(
     asset_server: Res<AssetServer>,
 ) {
     for i in 0..WALL_SIDES {
-        let scale = Vec3::new(CENTER_HEX_WIDTH, CENTER_HEX_HEIGHT, 2.0);
+        let scale = Vec3::new(BORDER_WIDTH, BORDER_HEIGHT, 2.0);
         let theta = (i as f32 * (360.0 / WALL_SIDES as f32));
         let translation = Vec3::new(0.0, 0.0, 2.0);
         let rotation = Quat::from_rotation_z(theta.to_radians());
@@ -310,10 +321,32 @@ fn spawn_background_borders(
                 ..default()
             },
             OnGameScreen,
-            Borders { theta: theta },
+            Borders { offset_theta: theta, index: i },
         ));
     }
 }
+
+fn game_center_hex_mover(
+    mut commands: Commands,
+    mut move_timer: ResMut<CenterHexMoveTimer>,
+    game: Res<Game>,
+    time: Res<Time>,
+    mut query: Query<(&mut Transform, &mut CenterHex)>,
+) {
+    if move_timer.0.tick(time.delta()).finished() {
+        for (mut transform, mut center_hex) in query.iter_mut() {
+            let theta = game.theta;
+            let theta = (theta + center_hex.index as f32 * 60.0) % 360.0;
+            let theta = (theta + center_hex.offset_theta) % 360.0;
+            transform.rotation = Quat::from_rotation_z(theta.to_radians() + 90.0_f32.to_radians());
+            let x = theta.to_radians().cos() * CENTER_HEX_RADIUS;
+            let y = theta.to_radians().sin() * CENTER_HEX_RADIUS;
+            transform.translation.x = x;
+            transform.translation.y = y;
+        }
+    }
+}
+
 
 fn spawn_center_hex(
     mut commands: Commands,
@@ -330,7 +363,7 @@ fn spawn_center_hex(
             2.0,
         );
         let scale = Vec3::new(
-            CENTER_HEX_RADIUS + (CENTER_HEX_HEIGHT * 2.0),
+            CENTER_HEX_RADIUS + (CENTER_HEX_RADIUS / 6.25),
             CENTER_HEX_HEIGHT,
             1.0,
         );
@@ -351,7 +384,7 @@ fn spawn_center_hex(
                 ..default()
             },
             OnGameScreen,
-            CenterHex { theta: theta },
+            CenterHex { offset_theta: 30.0, index: i },
         ));
     }
 }
@@ -396,15 +429,22 @@ fn game_setup(
             ));
         });
 
+    let mut triangle = Triangle2d {
+        vertices: [
+            Vec2::new(1.0, 0.0),
+            Vec2::new(0.0, 1.0),
+            Vec2::new(1.0, 1.0),
+        ],
+    };
     commands.spawn((
-        SpriteBundle {
+        MaterialMesh2dBundle {
+            mesh: meshes
+                .add(Mesh::from(triangle))
+                .into(),
+            material: materials.add(Color::NAVY).into(),
             transform: Transform {
                 translation: Vec3::new(0.0, 0.0, 3.0),
                 scale: Vec3::new(60.0, 60.0, 2.0),
-                ..default()
-            },
-            sprite: Sprite {
-                color: Color::NAVY,
                 ..default()
             },
             ..default()
@@ -443,6 +483,10 @@ fn game_setup(
         TimerMode::Repeating,
     )));
     commands.insert_resource(CenterHexMoveTimer(Timer::from_seconds(
+        1.0 / 30.0,
+        TimerMode::Repeating,
+    )));
+    commands.insert_resource(GameRotateTimer(Timer::from_seconds(
         1.0 / 30.0,
         TimerMode::Repeating,
     )));
@@ -500,6 +544,7 @@ fn game(
         for mut transform in query.iter_mut() {
             transform.translation.x = x;
             transform.translation.y = y;
+            transform.rotation = Quat::from_rotation_z(game.player.theta.to_radians() + 60.0_f32.to_radians());
         }
     }
 }

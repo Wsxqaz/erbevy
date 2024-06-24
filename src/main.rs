@@ -39,6 +39,7 @@ struct Game {
     menu: Menu,
     player: Player,
     walls: Walls,
+    theta: f32,
 }
 
 #[derive(Default, Debug)]
