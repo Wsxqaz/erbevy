@@ -7,7 +7,7 @@ const PLAYER_MOVE_SPEED: f32 = 5.0;
 const INITIAL_RING_RADIUS: f32 = 100.0;
 const WALL_SPIN_SPEED: f32 = 1.0;
 const WALL_SHRINK_SPEED: f32 = 0.01;
-const WALL_RING_RADIUS: f32 = 1000.0;
+const WALL_RING_RADIUS: f32 = 300.0;
 const WALL_HEIGHT: f32 = 10.0;
 const CENTER_HEX_RADIUS: f32 = 100.0;
 const CENTER_HEX_HEIGHT: f32 = 10.0;
@@ -108,6 +108,7 @@ impl Plugin for GamePlugin {
                 game_border_mover,
                 game_center_hex_mover,
                 game_theta_mover,
+                game_collision,
             )
                 .chain()
                 .run_if(in_state(GameState::Playing)),
@@ -165,6 +166,27 @@ fn game_wallspawner(
             ring_radius: WALL_RING_RADIUS,
         },
     ));
+}
+
+fn game_collision(
+    mut commands: Commands,
+    game: Res<Game>,
+    mut game_state: ResMut<NextState<GameState>>,
+    mut query: Query<(&Transform, &Wall)>,
+    mut player_query: Query<(&Transform, &PlayerSprite)>,
+) {
+    for (player_transform, _) in player_query.iter() {
+        for (wall_transform, wall) in query.iter() {
+            let player_x = player_transform.translation.x;
+            let player_y = player_transform.translation.y;
+            let wall_x = wall_transform.translation.x;
+            let wall_y = wall_transform.translation.y;
+            let distance = ((player_x - wall_x).powi(2) + (player_y - wall_y).powi(2)).sqrt();
+            if distance < 15.0 {
+                game_state.set(GameState::Menu);
+            }
+        }
+    }
 }
 
 fn game_wallmover(
@@ -431,9 +453,9 @@ fn game_setup(
 
     let mut triangle = Triangle2d {
         vertices: [
-            Vec2::new(1.0, 0.0),
-            Vec2::new(0.0, 1.0),
-            Vec2::new(1.0, 1.0),
+            Vec2::Y * 0.25,
+            Vec2::new(-0.25, -0.25),
+            Vec2::new(0.25, -0.25),
         ],
     };
     commands.spawn((
@@ -544,7 +566,7 @@ fn game(
         for mut transform in query.iter_mut() {
             transform.translation.x = x;
             transform.translation.y = y;
-            transform.rotation = Quat::from_rotation_z(game.player.theta.to_radians() + 60.0_f32.to_radians());
+            transform.rotation = Quat::from_rotation_z(game.player.theta.to_radians() + 270.0_f32.to_radians());
         }
     }
 }
