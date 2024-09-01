@@ -7,7 +7,7 @@ const PLAYER_MOVE_SPEED: f32 = 5.0;
 const INITIAL_RING_RADIUS: f32 = 100.0;
 const WALL_SPIN_SPEED: f32 = 1.0;
 const WALL_SHRINK_SPEED: f32 = 0.01;
-const WALL_RING_RADIUS: f32 = 300.0;
+const WALL_RING_RADIUS: f32 = 600.0;
 const WALL_HEIGHT: f32 = 10.0;
 const CENTER_HEX_RADIUS: f32 = 100.0;
 const CENTER_HEX_HEIGHT: f32 = 10.0;
@@ -117,6 +117,13 @@ impl Plugin for GamePlugin {
     }
 }
 
+const wall_patterns: [[i32; 3]; 4] = [
+    [0, 2, 4],
+    [1, 3, 5],
+    [0, 1, 2],
+    [3, 4, 5],
+];
+
 fn game_wallspawner(
     mut commands: Commands,
     mut game: ResMut<Game>,
@@ -126,46 +133,52 @@ fn game_wallspawner(
     mut materials: ResMut<Assets<ColorMaterial>>,
     asset_server: Res<AssetServer>,
 ) {
-    if !timer.0.tick(time.delta()).just_finished() {
+    if !timer.0.tick(time.delta()).finished() {
         return;
     }
 
     println!("spawning wall");
-    let wallside = game.walls.last;
-    game.walls.last += 1;
-    let theta = game.theta;
-    let theta = (theta + wallside as f32 * 60.0) % 360.0;
-    let theta = (theta + 30.0) % 360.0;
-    let x = theta.to_radians().cos() * WALL_RING_RADIUS;
-    let y = theta.to_radians().sin() * WALL_RING_RADIUS;
-    let translation = Vec3::new(x, y, 10.0);
-    let x1 = (1.0 * WALL_RING_RADIUS);
-    let x2 = (60.0_f32.to_radians().cos() * WALL_RING_RADIUS);
-    let y1 = 0.0;
-    let y2 = (60.0_f32.to_radians().sin() * WALL_RING_RADIUS);
-    let scale_x = ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt() + (WALL_RING_RADIUS / 6.25);
-    let scale = Vec3::new(scale_x, WALL_HEIGHT, 1.0);
-    let rotation = Quat::from_rotation_z(theta.to_radians() + 90.0_f32.to_radians());
 
-    commands.spawn((
-        SpriteBundle {
-            transform: Transform {
-                translation: translation,
-                scale: scale,
-                rotation: rotation,
-            },
-            sprite: Sprite {
-                color: Color::WHITE,
+    let pattern_number = (game.theta / 60.0) % wall_patterns.len() as f32;
+
+
+    let pattern = wall_patterns[pattern_number as usize].clone();
+    for side in pattern.iter() {
+        let wallside = *side as f32;
+        let theta = game.theta;
+        let theta = (theta + wallside as f32 * 60.0) % 360.0;
+        let theta = (theta + 30.0) % 360.0;
+        let x = theta.to_radians().cos() * WALL_RING_RADIUS;
+        let y = theta.to_radians().sin() * WALL_RING_RADIUS;
+        let translation = Vec3::new(x, y, 10.0);
+        let x1 = (1.0 * WALL_RING_RADIUS);
+        let x2 = (60.0_f32.to_radians().cos() * WALL_RING_RADIUS);
+        let y1 = 0.0;
+        let y2 = (60.0_f32.to_radians().sin() * WALL_RING_RADIUS);
+        let scale_x = ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt() + (WALL_RING_RADIUS / 6.25);
+        let scale = Vec3::new(scale_x, WALL_HEIGHT, 1.0);
+        let rotation = Quat::from_rotation_z(theta.to_radians() + 90.0_f32.to_radians());
+
+        commands.spawn((
+            SpriteBundle {
+                transform: Transform {
+                    translation: translation,
+                    scale: scale,
+                    rotation: rotation,
+                },
+                sprite: Sprite {
+                    color: Color::WHITE,
+                    ..default()
+                },
                 ..default()
             },
-            ..default()
-        },
-        OnGameScreen,
-        Wall {
-            index: wallside,
-            ring_radius: WALL_RING_RADIUS,
-        },
-    ));
+            OnGameScreen,
+            Wall {
+                index: side.clone() as u32,
+                ring_radius: WALL_RING_RADIUS,
+            },
+        ));
+    }
 }
 
 fn game_collision(
@@ -491,7 +504,7 @@ fn game_setup(
         1.0 / 60.0,
         TimerMode::Repeating,
     )));
-    commands.insert_resource(WallSpawnTimer(Timer::from_seconds(1.0, TimerMode::Once)));
+    commands.insert_resource(WallSpawnTimer(Timer::from_seconds(5.0, TimerMode::Once)));
     commands.insert_resource(WallMoveTimer(Timer::from_seconds(
         1.0 / 30.0,
         TimerMode::Repeating,
