@@ -1,6 +1,7 @@
 use crate::{Game, GameState};
 use bevy::prelude::*;
 use bevy::sprite::{MaterialMesh2dBundle, Mesh2dHandle};
+use rand::prelude::*;
 
 const WALL_SIDES: u32 = 6u32;
 const PLAYER_MOVE_SPEED: f32 = 5.0;
@@ -124,6 +125,8 @@ const wall_patterns: [[i32; 3]; 4] = [
     [3, 4, 5],
 ];
 
+
+
 fn game_wallspawner(
     mut commands: Commands,
     mut game: ResMut<Game>,
@@ -137,9 +140,10 @@ fn game_wallspawner(
         return;
     }
 
-    println!("spawning wall");
-
-    let pattern_number = (game.theta / 60.0) % wall_patterns.len() as f32;
+    let mut rng = rand::thread_rng();
+    let pattern_number: f32 = (
+        rng.gen::<f32>() * wall_patterns.len() as f32
+    ) % wall_patterns.len() as f32;
 
 
     let pattern = wall_patterns[pattern_number as usize].clone();
@@ -195,7 +199,7 @@ fn game_collision(
             let wall_x = wall_transform.translation.x;
             let wall_y = wall_transform.translation.y;
             let distance = ((player_x - wall_x).powi(2) + (player_y - wall_y).powi(2)).sqrt();
-            if distance < 15.0 {
+            if distance < 25.0 {
                 game_state.set(GameState::Menu);
             }
         }
@@ -216,7 +220,6 @@ fn game_wallmover(
     }
 
     for (mut transform, mut wall, entity) in query.iter_mut() {
-        println!("moving wall {}", wall.index);
         let theta = game.theta;
         let theta = (theta + wall.index as f32 * 60.0) % 360.0;
         let theta = (theta + 30.0) % 360.0;
@@ -231,7 +234,6 @@ fn game_wallmover(
         let scale_x = ((x1 - x2).powi(2) + (y1 - y2).powi(2)).sqrt();
         transform.translation.x = x;
         transform.translation.y = y;
-        info!("scale_x: {}", scale_x);
         transform.scale.x = scale_x + (wall.ring_radius / 6.25);
 
         if wall.ring_radius < CENTER_HEX_RADIUS {
@@ -504,7 +506,7 @@ fn game_setup(
         1.0 / 60.0,
         TimerMode::Repeating,
     )));
-    commands.insert_resource(WallSpawnTimer(Timer::from_seconds(5.0, TimerMode::Once)));
+    commands.insert_resource(WallSpawnTimer(Timer::from_seconds(5.0, TimerMode::Repeating)));
     commands.insert_resource(WallMoveTimer(Timer::from_seconds(
         1.0 / 30.0,
         TimerMode::Repeating,
