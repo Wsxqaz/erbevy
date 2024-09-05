@@ -17,6 +17,8 @@ const BORDER_WIDTH: f32 = 3000.0;
 const BORDER_HEIGHT: f32 = 10.0;
 const BACKGROUD_MOVE_SPEED: f32 = 0.5;
 
+const WAVE_WIDTH: f32 = 50.0;
+
 // /-\
 // \-/
 
@@ -65,10 +67,17 @@ struct CenterHexMoveTimer(Timer);
 #[derive(Resource)]
 struct GameRotateTimer(Timer);
 
+#[derive(Resource)]
+struct ScoreTimer(Timer);
+
+#[derive(Resource)]
+struct RadiusShrinkerTimer(Timer);
+
 #[derive(Component)]
 struct Wall {
     index: u32,
     ring_radius: f32,
+    posn: f32,              // 0.0 to 1.0 where 0.0 is the center hex
 }
 
 #[derive(Component)]
@@ -110,6 +119,8 @@ impl Plugin for GamePlugin {
                 game_center_hex_mover,
                 game_theta_mover,
                 game_collision,
+                game_score,
+                game_radius_shrinker,
             )
                 .chain()
                 .run_if(in_state(GameState::Playing)),
@@ -118,13 +129,32 @@ impl Plugin for GamePlugin {
     }
 }
 
-const wall_patterns: [[i32; 3]; 4] = [
+const wall_patterns: [[i32; 3]; 10] = [
     [0, 2, 4],
     [1, 3, 5],
     [0, 1, 2],
     [3, 4, 5],
+    [0, 0, 0],
+    [1, 1, 1],
+    [2, 2, 2],
+    [3, 3, 3],
+    [4, 4, 4],
+    [5, 5, 5]
 ];
 
+fn game_score(
+    mut commands: Commands,
+    mut score_timer: ResMut<ScoreTimer>,
+    mut game_state: ResMut<NextState<GameState>>,
+    time: Res<Time>,
+    mut game: ResMut<Game>,
+) {
+    if score_timer.0.tick(time.delta()).just_finished() {
+        game_state.set(GameState::Menu);
+    }
+
+    game.score += time.delta().as_secs_f32();
+}
 
 
 fn game_wallspawner(
@@ -180,6 +210,7 @@ fn game_wallspawner(
             Wall {
                 index: side.clone() as u32,
                 ring_radius: WALL_RING_RADIUS,
+                posn: 1.0,
             },
         ));
     }
@@ -206,6 +237,21 @@ fn game_collision(
     }
 }
 
+fn game_radius_shrinker(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut game: ResMut<Game>,
+    mut timer: ResMut<RadiusShrinkerTimer>
+) {
+    if !timer.0.tick(time.delta()).finished() {
+        return;
+    }
+
+    game.center_ring_radius = CENTER_HEX_RADIUS + (WAVE_WIDTH * game.theta.to_radians().sin());
+    game.player_radius = PLAYER_RING_RADIUS + (WAVE_WIDTH * game.theta.to_radians().sin());
+    game.wall_ring_radius = WALL_RING_RADIUS + (WAVE_WIDTH * game.theta.to_radians().sin());
+}
+
 fn game_wallmover(
     mut commands: Commands,
     mut move_timer: ResMut<WallMoveTimer>,
@@ -224,7 +270,8 @@ fn game_wallmover(
         let theta = (theta + wall.index as f32 * 60.0) % 360.0;
         let theta = (theta + 30.0) % 360.0;
         transform.rotation = Quat::from_rotation_z(theta.to_radians() + 90.0_f32.to_radians());
-        wall.ring_radius -= 1.0;
+        wall.posn -= 0.01;
+        wall.ring_radius = game.wall_ring_radius * wall.posn;
         let x = theta.to_radians().cos() * wall.ring_radius;
         let y = theta.to_radians().sin() * wall.ring_radius;
         let x1 = (1.0 * wall.ring_radius);
@@ -376,10 +423,18 @@ fn game_center_hex_mover(
             let theta = (theta + center_hex.index as f32 * 60.0) % 360.0;
             let theta = (theta + center_hex.offset_theta) % 360.0;
             transform.rotation = Quat::from_rotation_z(theta.to_radians() + 90.0_f32.to_radians());
-            let x = theta.to_radians().cos() * CENTER_HEX_RADIUS;
-            let y = theta.to_radians().sin() * CENTER_HEX_RADIUS;
+            let x = theta.to_radians().cos() * game.center_ring_radius;
+            let y = theta.to_radians().sin() * game.center_ring_radius;
+
             transform.translation.x = x;
             transform.translation.y = y;
+
+            let scale = Vec3::new(
+                game.center_ring_radius + (game.center_ring_radius / 6.25),
+                CENTER_HEX_HEIGHT,
+                1.0,
+            );
+            transform.scale = scale;
         }
     }
 }
@@ -506,7 +561,7 @@ fn game_setup(
         1.0 / 60.0,
         TimerMode::Repeating,
     )));
-    commands.insert_resource(WallSpawnTimer(Timer::from_seconds(5.0, TimerMode::Repeating)));
+    commands.insert_resource(WallSpawnTimer(Timer::from_seconds(1.0, TimerMode::Repeating)));
     commands.insert_resource(WallMoveTimer(Timer::from_seconds(
         1.0 / 30.0,
         TimerMode::Repeating,
@@ -527,6 +582,17 @@ fn game_setup(
         1.0 / 30.0,
         TimerMode::Repeating,
     )));
+
+    commands.insert_resource(ScoreTimer(Timer::from_seconds(
+        60.0,
+        TimerMode::Once,
+    )));
+
+    commands.insert_resource(RadiusShrinkerTimer(Timer::from_seconds(
+        1.0 / 60.0,
+        TimerMode::Repeating,
+    )));
+
 }
 
 fn game_player_tracker(
@@ -541,7 +607,14 @@ fn game_player_tracker(
         .just_finished()
     {
         for mut text in query.iter_mut() {
-            text.sections[0].value = format!("player: {:?}", game.player);
+            text.sections[0].value = format!(
+                "player: {:?}\nscore: {:?}\nplayer_ring: {:?}\ncenter_ring: {:?}\nwall_ring: {:?}",
+                game.player,
+                game.score,
+                game.player_radius,
+                game.center_ring_radius,
+                game.wall_ring_radius
+            );
         }
     }
 }
@@ -574,8 +647,8 @@ fn game(
     }
 
     if move_timer.0.tick(time.delta()).just_finished() {
-        let x = game.player.theta.to_radians().cos() * PLAYER_RING_RADIUS;
-        let y = game.player.theta.to_radians().sin() * PLAYER_RING_RADIUS;
+        let x = game.player.theta.to_radians().cos() * game.player_radius;
+        let y = game.player.theta.to_radians().sin() * game.player_radius;
         game.player.x = x;
         game.player.y = y;
         for mut transform in query.iter_mut() {

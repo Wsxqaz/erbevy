@@ -23,23 +23,27 @@ const NUM_SECTIONS: usize = 10;
 #[derive(Resource)]
 struct PhaseTimer(Timer);
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Section {
     color: u32,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Ring {
     sections: [Section; NUM_SECTIONS],
 }
 
-#[derive(Resource, Default)]
+#[derive(Resource, Default, Debug)]
 struct Game {
     rings: [Ring; NUM_RINGS],
     menu: Menu,
     player: Player,
     walls: Walls,
     theta: f32,
+    score: f32,
+    center_ring_radius: f32,
+    player_radius: f32,
+    wall_ring_radius: f32,
 }
 
 #[derive(Default, Debug)]
@@ -60,7 +64,7 @@ struct MenuItem {
     text: String,
 }
 
-#[derive(Default)]
+#[derive(Default, Debug)]
 struct Menu {
     hover: u32,
 }
